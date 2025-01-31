@@ -1,0 +1,340 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "CloudFormation Template for web hosting on EC2 with CloudFront"
+
+# If you run this template using CLI, please replace the default values with a placeholder [...]
+
+Parameters:
+
+  EC2InstanceType:
+    Description: "EC2 instance type"
+    Type: String
+    Default: t3a.small
+    # Examples only, adjust as required
+    AllowedValues:
+      - t3a.small
+      - m5.large
+      - c5.xlarge
+      - r5.large
+      - g4dn.xlarge
+
+  EC2ImageId:
+    Description: "AMI ID for the EC2 instance"
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    # The EC2 instance is to be created with an image in the same region where the stack runs
+
+  S3BucketName:
+    Description: "The name of the S3 bucket containing the application ZIP file to deploy"
+    Type: String
+    Default: [deployment_s3_bucket]
+
+  S3Key:
+    Description: "The S3 key (path) of the ZIP file to deploy, e.g., src/streamlit/app.zip"
+    Type: String
+    Default: [deployment_s3_zip_file_path]
+
+  VPCId:
+    Description: "VPC ID"
+    Type: AWS::EC2::VPC::Id
+    Default: [vpc_id]
+
+  EC2SubnetId:
+    Description: "Subnet ID for EC2, e.g., subnet-abc123"
+    Type: AWS::EC2::Subnet::Id
+    Default: [ec2_subnet_id]
+
+  AppPort:
+    Description: "Port number for the application, e.g., 8501"
+    Type: Number
+    Default: 80
+
+  TimeZone:
+    Description: "Time zone for the EC2 instance"
+    Type: String
+    Default: [your_time_zone]
+
+  # Optional - If you are not using a key pair, leave this value empty.
+  # You can always connect to the EC2 instance via the AWS Console.
+  KeyName:
+    Description: "Name of an existing EC2 KeyPair to enable SSH access"
+    Type: String
+    Default: ""
+
+
+########################################################
+#
+# Custom domain parameters (optional)
+#   If you are using a custome domain, define all three values in this section.
+#   Otherwise, leave all values empty.
+#
+  CustomDomain:
+    Description: "The custom domain name (e.g., app.example.com)"
+    Type: String
+    Default: ""
+
+  HostedZoneId:
+    Description: "Route53 Hosted Zone ID for the domain"
+    Type: String
+    Default: ""
+
+  ACMCertificateArn:
+    Description: "The ACM Certificate for the custom domain name in the same region, e.g., arn:aws:acm:[region]:[aws_account]:certificate/[certificate_id]"
+    Type: String
+    Default: ""
+    # The ACM Certificate needs to be in us-east-1 for CloudFront to work.
+#
+########################################################
+
+
+########################################################
+#
+# CloudFront specific (optional)
+#   The CloudFront client can pass a custom header such as "X-Client-Secret"
+#   to the EC2 origin as a way to "authenticate" the request, such that
+#   the EC2 backend app can check whether the request is from the client.
+#   If you do not want to pass a custom header, leave the value empty.
+#
+  SecretHeader:
+    Description: "A secret header to be passed to the EC2 backend app"
+    Type: String
+    Default: "X-Client-Secret"
+
+  SecretValue:
+    Description: "A secret value to be passed to the EC2 backend app"
+    Type: String
+    Default: "secret-value"
+#
+########################################################
+
+
+Conditions:
+
+  UseKeyName: !Not
+    - !Equals [!Ref KeyName, ""]
+
+  UseCustomDomain: !Not
+    - !Equals [!Ref CustomDomain, ""]
+
+  NotUseCustomDomain: !Not
+    - Condition: UseCustomDomain
+
+
+Mappings:
+  HostedZoneMap:
+    CloudFront:
+      HostedZoneId: Z2FDTNDATAQYW2 # CloudFront Hosted Zone ID
+
+Resources:
+
+########################################################
+#
+# EC2
+#
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3BucketName}/${S3Key}"
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow HTTP and SSH"
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: !Ref AppPort
+          ToPort: !Ref AppPort
+          CidrIp: 0.0.0.0/0
+          # Open to the public. Let the backend app reject requests
+          # based on SecretHeader.
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref EC2InstanceType
+      ImageId: !Ref EC2ImageId
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      KeyName:
+          Fn::If:
+            - UseKeyName
+            - !Ref KeyName
+            - !Ref AWS::NoValue
+      VpcId: !Ref VPCId
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref EC2SubnetId
+          GroupSet:
+            - !Ref EC2SecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+      UserData:
+        # This script runs at first boot only.
+        # This example is to install a streamlit-app service.
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e  # Exit on any error
+          (
+            # Initialisation
+            date
+            yum update -y
+            yum install -y unzip aws-cli
+            yum install python -y
+            yum install python-pip -y
+            timedatectl set-timezone ${TimeZone}
+
+            # Prepare the running environment
+            mkdir -p /home/ec2-user/streamlit-app
+            echo S3BucketName=${S3BucketName} > /home/ec2-user/streamlit-app/app.conf
+            echo S3Key=${S3Key} >> /home/ec2-user/streamlit-app/app.conf
+            echo AppPort=${AppPort} >> /home/ec2-user/streamlit-app/app.conf
+            chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app
+
+            # Download and unpack the application ZIP file
+            aws s3 cp s3://${S3BucketName}/${S3Key} /home/ec2-user/streamlit-app/app.zip
+            test -d /opt/streamlit-app && rm -fr /opt/streamlit-app
+            mkdir -p /opt/streamlit-app
+            unzip /home/ec2-user/streamlit-app/app.zip -d /opt/streamlit-app
+            chmod +x /opt/streamlit-app/streamlit_app.sh
+            chown -R ec2-user:ec2-user /opt/streamlit-app
+
+            # Create the Streamlit config file
+            mkdir -p /home/ec2-user/.streamlit
+            cat << EOF > /home/ec2-user/.streamlit/config.toml
+          [server]
+          enableCORS = false
+          EOF
+            chown -R ec2-user:ec2-user /home/ec2-user/.streamlit
+
+            # Create the log file
+            touch /var/log/streamlit-app.log
+            chown ec2-user:ec2-user /var/log/streamlit-app.log
+
+            # Create a systemd service to run the application
+            cat << EOF > /etc/systemd/system/streamlit-app.service
+          [Unit]
+          Description=Run the application continuously
+          After=network.target
+
+          [Service]
+          ExecStart=/opt/streamlit-app/streamlit_app.sh
+          Type=simple
+          Restart=always
+          RestartSec=5
+          User=ec2-user
+          WorkingDirectory=/opt/streamlit-app
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+            systemctl daemon-reload
+            systemctl enable streamlit-app
+            systemctl start streamlit-app
+
+            echo "EC2 instance is ready"
+          ) >> /var/log/ec2-userdata.log 2>&1
+
+  EC2EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref EC2Instance
+
+########################################################
+#
+# CloudFront Distribution
+#
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    # DomainName EC2Instance.PublicDnsName depends on EC2EIP
+    DependsOn: EC2EIP
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AWS::StackName}"
+        HttpVersion: http3  # Support HTTP/3 with fallback to HTTP/2 and HTTP/1.1
+        Origins:
+          - DomainName: !GetAtt EC2Instance.PublicDnsName
+            Id: EC2Origin
+            CustomOriginConfig:
+              HTTPPort: !Ref AppPort
+              OriginProtocolPolicy: http-only
+            OriginCustomHeaders:
+              - HeaderName: !Ref SecretHeader
+                HeaderValue: !Ref SecretValue
+        DefaultCacheBehavior:
+          TargetOriginId: EC2Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+          CachedMethods: ["GET", "HEAD"]
+          ForwardedValues:
+            QueryString: true
+        ViewerCertificate:
+          Fn::If:
+            - UseCustomDomain
+            - AcmCertificateArn: !Ref ACMCertificateArn
+              SslSupportMethod: sni-only
+            - !Ref AWS::NoValue
+        Aliases:
+          Fn::If:
+            - UseCustomDomain
+            - [!Ref CustomDomain]
+            - !Ref AWS::NoValue
+
+  Route53Record:
+    Type: AWS::Route53::RecordSet
+    Condition: UseCustomDomain
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref CustomDomain
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: !FindInMap [HostedZoneMap, CloudFront, HostedZoneId]
+
+Outputs:
+
+  CloudFrontURL:
+    Description: "URL of the CloudFront Distribution"
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+
+  CustomURL:
+    Condition: UseCustomDomain
+    Description: "URL of the custom domain"
+    Value: !Sub "https://${CustomDomain}"
+
+  EC2BackendAppURL:
+    Description: "URL of the backend application (for testing)"
+    Value: !Sub "http://${EC2Instance.PublicDnsName}:${AppPort}"
