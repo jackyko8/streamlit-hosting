@@ -1,0 +1,4 @@
+# Cron jobs for streamlit-app
+*/5 7-18 * * * $0 --update-only
+0 19-22 * * * $0 --update-only
+0 4-6 * * * $0 --update-only

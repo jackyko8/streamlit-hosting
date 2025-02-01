@@ -211,32 +211,29 @@ Resources:
             date
             yum update -y
             yum install -y unzip aws-cli
+            yum install cronie -y
+            systemctl start crond
+
             yum install python -y
             yum install python-pip -y
             timedatectl set-timezone ${TimeZone}
 
             # Prepare the running environment
-            mkdir -p /home/ec2-user/streamlit-app
-            echo S3BucketName=${S3BucketName} > /home/ec2-user/streamlit-app/app.conf
-            echo S3Key=${S3Key} >> /home/ec2-user/streamlit-app/app.conf
-            echo AppPort=${AppPort} >> /home/ec2-user/streamlit-app/app.conf
-            chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app
+            app_user=ec2-user
+            homedir=/home/$app_user
+            mkdir -p $homedir/streamlit-app
+            echo S3BucketName=${S3BucketName} > $homedir/streamlit-app/app.conf
+            echo S3Key=${S3Key} >> $homedir/streamlit-app/app.conf
+            echo AppPort=${AppPort} >> $homedir/streamlit-app/app.conf
+            chown -R $app_user:$app_user $homedir/streamlit-app
 
             # Download and unpack the application ZIP file
-            aws s3 cp s3://${S3BucketName}/${S3Key} /home/ec2-user/streamlit-app/app.zip
+            aws s3 cp s3://${S3BucketName}/${S3Key} $homedir/streamlit-app/app.zip
             test -d /opt/streamlit-app && rm -fr /opt/streamlit-app
             mkdir -p /opt/streamlit-app
-            unzip /home/ec2-user/streamlit-app/app.zip -d /opt/streamlit-app
+            unzip $homedir/streamlit-app/app.zip -d /opt/streamlit-app
             chmod +x /opt/streamlit-app/streamlit_app.sh
-            chown -R ec2-user:ec2-user /opt/streamlit-app
-
-            # Create the Streamlit config file
-            mkdir -p /home/ec2-user/.streamlit
-            cat << EOF > /home/ec2-user/.streamlit/config.toml
-          [server]
-          enableCORS = false
-          EOF
-            chown -R ec2-user:ec2-user /home/ec2-user/.streamlit
+            chown -R $app_user:$app_user /opt/streamlit-app
 
             # Create the log file
             touch /var/log/streamlit-app.log
@@ -253,7 +250,7 @@ Resources:
           Type=simple
           Restart=always
           RestartSec=5
-          User=ec2-user
+          User=$app_user
           WorkingDirectory=/opt/streamlit-app
 
           [Install]

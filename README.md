@@ -27,7 +27,7 @@ The CloudFormation templates in `./src/cfn` can be used for non-Streamlit applic
    ```bash
    python -m venv venv
    source venv/bin/activate # On Windows: venv\Scripts\activate
-   pip install -r src/app/requirements.txt
+   pip install -r src/app/config/requirements.txt
    ```
 
 3. Start the Streamlit app:
@@ -55,14 +55,16 @@ The CloudFormation templates in `./src/cfn` can be used for non-Streamlit applic
 - Set up
 
   - Update `./bin/setup.sh` with your stack name and deployment S3 path.
+    - Add a line: `export STACK_NAME=[your_stack_name]`
   - Run `source ./bin/setup.sh`.
 
 - S3 Bucket for deploying source code
 
   - Create an S3 Bucket in the same region where you deploy the stack.
 
-- Modify `./src/cfn/streamlit-app.yml`
+- Modify the CloudFormation template
 
+  - Copy one of the template files in `./src/cfn/` to `./src/cfn/[your_stack_name].yml`
   - Supply all parameters in `[...]`, including the `S3BucketName` created above.
 
 - If you are using a custom domain

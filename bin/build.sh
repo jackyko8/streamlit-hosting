@@ -125,7 +125,7 @@ if [ -z "$streamlitUpdated" ]; then
     echo $streamlitName is up to date
 else
     echo $streamlitName needs update
-    (cd $srcStreamlit; zip -r $TEMPDIR/$zipName *.py *.txt *.sh)
+    (cd $srcStreamlit; zip -r $TEMPDIR/$zipName *.py *.sh config)
     mv $TEMPDIR/$zipName $buildDir/$zipName
 fi
 

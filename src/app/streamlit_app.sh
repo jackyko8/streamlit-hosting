@@ -8,8 +8,14 @@
 # the app will be updated into $appdir, then the old zip file will be backed up,
 # and the new hash will be stored in $rundir.
 
+update_only=
+if [ "$1" == "--update-only" ]; then
+    update_only=1
+fi
+
 logfile=/var/log/streamlit-app.log
-appdir=/opt/streamlit-app
+appdir=$(dirname $0)
+configdir=$appdir/config
 
 homedir=~
 rundir=$homedir/streamlit-app
@@ -56,14 +62,34 @@ function update_app {
     # The current script may be updated too but that is fine.
     # It will be used next time.
     echo "Updating app..."
+
+    # Install the app
     rm -rf $appdir/*
     unzip -o $zipfile -d $appdir
-    # Itself may be updated.
+
+    # This script itself may be updated, and that is fine.
     chmod +x $0
     cd $appdir
+
+    # Install required packages
     export TMPDIR=$homedir/tmp
     mkdir -p $TMPDIR
-    pip3 install -r requirements.txt
+    pip3 install -r $configdir/requirements.txt
+
+    # Create the Streamlit config file
+    mkdir -p $homedir/.streamlit
+    cp -a $configdir/config.toml $homedir/.streamlit
+
+    # Create cron jobs (overwriting existing ones)
+    if [ -s $configdir/crontab.txt ]; then
+        echo
+        echo "Cron jobs"
+        # me=$(readlink -f "$0")
+        me="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+        sed -e"s%\$0%$me%g" $configdir/crontab.txt | tee >(crontab -)
+    fi
+
+    echo
     echo "App updated."
 }
 
@@ -87,5 +113,7 @@ function start_streamlit {
     if check_update; then
         update_app
     fi
-    start_streamlit
+    if [ -z "$update_only" ]; then
+        start_streamlit
+    fi
 ) >> $logfile 2>&1

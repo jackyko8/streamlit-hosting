@@ -53,6 +53,7 @@ Parameters:
     Type: String
     AllowedValues: ["true", "false"]
     Default: "false"
+    # Must set to "false" in production
 
   AppPort:
     Description: "Port number for the application, e.g., 8501"
@@ -87,7 +88,7 @@ Parameters:
     Description: "Route53 Hosted Zone ID for the domain"
     Type: String
     Default: ""
-\
+
   ACMCertificateArn:
     Description: "The ACM Certificate for the custom domain name in the same region, e.g., arn:aws:acm:[region]:[aws_account]:certificate/[certificate_id]"
     Type: String
@@ -95,27 +96,6 @@ Parameters:
     # The ACM Certificate needs to be created in the same region where the stack runs
 #
 ########################################################
-
-
-# ########################################################
-# #
-# # ALB specific (optional)
-# #   The ALB client can pass a custom header such as "X-Client-Secret"
-# #   to the EC2 origin as a way to "authenticate" the request, such that
-# #   the EC2 backend app can check whether the request is from the client.
-# #   If you do not want to pass a custom header, leave the value empty.
-# #
-#   SecretHeader:
-#     Description: "A secret header to be passed to the EC2 backend app"
-#     Type: String
-#     Default: "X-Client-Secret"
-
-#   SecretValue:
-#     Description: "A secret value to be passed to the EC2 backend app"
-#     Type: String
-#     Default: "secret-value"
-# #
-# ########################################################
 
 
 Conditions:
@@ -235,32 +215,29 @@ Resources:
             date
             yum update -y
             yum install -y unzip aws-cli
+            yum install cronie -y
+            systemctl start crond
+
             yum install python -y
             yum install python-pip -y
             timedatectl set-timezone ${TimeZone}
 
             # Prepare the running environment
-            mkdir -p /home/ec2-user/streamlit-app
-            echo S3BucketName=${S3BucketName} > /home/ec2-user/streamlit-app/app.conf
-            echo S3Key=${S3Key} >> /home/ec2-user/streamlit-app/app.conf
-            echo AppPort=${AppPort} >> /home/ec2-user/streamlit-app/app.conf
-            chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app
+            app_user=ec2-user
+            homedir=/home/$app_user
+            mkdir -p $homedir/streamlit-app
+            echo S3BucketName=${S3BucketName} > $homedir/streamlit-app/app.conf
+            echo S3Key=${S3Key} >> $homedir/streamlit-app/app.conf
+            echo AppPort=${AppPort} >> $homedir/streamlit-app/app.conf
+            chown -R $app_user:$app_user $homedir/streamlit-app
 
             # Download and unpack the application ZIP file
-            aws s3 cp s3://${S3BucketName}/${S3Key} /home/ec2-user/streamlit-app/app.zip
+            aws s3 cp s3://${S3BucketName}/${S3Key} $homedir/streamlit-app/app.zip
             test -d /opt/streamlit-app && rm -fr /opt/streamlit-app
             mkdir -p /opt/streamlit-app
-            unzip /home/ec2-user/streamlit-app/app.zip -d /opt/streamlit-app
+            unzip $homedir/streamlit-app/app.zip -d /opt/streamlit-app
             chmod +x /opt/streamlit-app/streamlit_app.sh
-            chown -R ec2-user:ec2-user /opt/streamlit-app
-
-            # Create the Streamlit config file
-            mkdir -p /home/ec2-user/.streamlit
-            cat << EOF > /home/ec2-user/.streamlit/config.toml
-          [server]
-          enableCORS = false
-          EOF
-            chown -R ec2-user:ec2-user /home/ec2-user/.streamlit
+            chown -R $app_user:$app_user /opt/streamlit-app
 
             # Create the log file
             touch /var/log/streamlit-app.log
@@ -277,7 +254,7 @@ Resources:
           Type=simple
           Restart=always
           RestartSec=5
-          User=ec2-user
+          User=$app_user
           WorkingDirectory=/opt/streamlit-app
 
           [Install]
@@ -399,6 +376,7 @@ Resources:
         - Type: redirect
           RedirectConfig:
             Protocol: HTTPS
+            Host: !Ref CustomDomain
             Port: 443
             StatusCode: HTTP_301
 
