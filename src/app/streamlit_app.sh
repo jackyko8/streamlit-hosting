@@ -13,12 +13,14 @@ if [ "$1" == "--update-only" ]; then
     update_only=1
 fi
 
-logfile=/var/log/streamlit-app.log
+app_name=streamlit-app
+
+logfile=/var/log/${app_name}.log
 appdir=$(dirname $0)
 configdir=$appdir/config
 
 homedir=~
-rundir=$homedir/streamlit-app
+rundir=$homedir/$app_name
 zipfile=$rundir/app.zip
 zipbackup=$zipfile.bak
 hashfile=$rundir/app.zip.sha256
@@ -58,6 +60,27 @@ function check_update {
     fi
 }
 
+function start_streamlit {
+    echo "Starting app on port ${port}..."
+
+    port=${1:-${AppPort:-8501}}
+    streamlit=$(which streamlit)
+    if [ -z "$streamlit" ]; then
+        echo "Streamlit not found. Please install Streamlit."
+        exit 1
+    fi
+    $streamlit run $appdir/app.py --server.port $port
+    # The above is blocking so not expecting the following will show, but just in case.
+    echo "Streamlit ended"
+}
+
+function stop_streamlit {
+    echo "Stopping app..."
+    pkill -f streamlit
+    sleep 1
+    echo "App stopped"
+}
+
 function update_app {
     # The current script may be updated too but that is fine.
     # It will be used next time.
@@ -89,20 +112,13 @@ function update_app {
         sed -e"s%\$0%$me%g" $configdir/crontab.txt | tee >(crontab -)
     fi
 
+    # Just in case some changes may require a streamlit restart
+    stop_streamlit
+    start_streamlit
+    # sudo systemctl restart $app_name
+
     echo
     echo "App updated."
-}
-
-function start_streamlit {
-    port=${1:-${AppPort:-8501}}
-    streamlit=$(which streamlit)
-    if [ -z "$streamlit" ]; then
-        echo "Streamlit not found. Please install Streamlit."
-        exit 1
-    fi
-    echo "App starting on port $port"
-    $streamlit run $appdir/app.py --server.port $port
-    echo "App ended"
 }
 
 

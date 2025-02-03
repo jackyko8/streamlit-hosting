@@ -1,0 +1,58 @@
+[
+  {
+    "ParameterKey": "EC2InstanceType",
+    "ParameterValue": "t3a.small"
+  },
+  {
+    "ParameterKey": "EC2ImageId",
+    "ParameterValue": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+  },
+  {
+    "ParameterKey": "S3BucketName",
+    "ParameterValue": "[deployment_s3_bucket]"
+  },
+  {
+    "ParameterKey": "S3Key",
+    "ParameterValue": "[deployment_s3_zip_file_path]"
+  },
+  {
+    "ParameterKey": "VPCId",
+    "ParameterValue": "[vpc_id]"
+  },
+  {
+    "ParameterKey": "EC2SubnetId",
+    "ParameterValue": "[ec2_subnet_id]"
+  },
+  {
+    "ParameterKey": "AppPort",
+    "ParameterValue": "8501"
+  },
+  {
+    "ParameterKey": "TimeZone",
+    "ParameterValue": "[your_time_zone]"
+  },
+  {
+    "ParameterKey": "KeyName",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "CustomDomain",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "HostedZoneId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ACMCertificateArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ALBSubnetIds",
+    "ParameterValue": "[subnet_id_list_comma_delimited]"
+  },
+  {
+    "ParameterKey": "EC2OpenAccess",
+    "ParameterValue": "false"
+  }
+]

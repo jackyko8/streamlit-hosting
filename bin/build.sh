@@ -80,6 +80,7 @@ srcStreamlit=$srcDir/$bnStreamlit
 srcCfn=$srcDir/$bnCfn
 buildDir=./build
 cfnTemplate=$srcCfn/${stackName}.yml
+paramsFile=$srcCfn/params-${stackName}.json
 
 echoDivider="========================================"
 
@@ -141,6 +142,7 @@ if [ -n "$doCfn" ]; then
         --profile $profile \
         --stack-name ${stackName} \
         --template-body file://$cfnTemplate \
+        --parameters file://$paramsFile \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
     test $? -eq 0 || error "Line $LINENO"
 fi

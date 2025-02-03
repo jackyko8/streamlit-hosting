@@ -18,7 +18,7 @@ The CloudFormation templates in `./src/cfn` can be used for non-Streamlit applic
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/onmyai/streamlit-hosting.git
+   git clone https://github.com/jackyko8/streamlit-hosting.git
    cd streamlit-hosting
    ```
 

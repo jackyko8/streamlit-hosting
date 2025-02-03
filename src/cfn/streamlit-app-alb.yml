@@ -26,34 +26,22 @@ Parameters:
   S3BucketName:
     Description: "The name of the S3 bucket containing the application ZIP file to deploy"
     Type: String
-    Default: [deployment_s3_bucket]
+    Default: "[deployment_s3_bucket]"
 
   S3Key:
     Description: "The S3 key (path) of the ZIP file to deploy, e.g., src/streamlit/app.zip"
     Type: String
-    Default: [deployment_s3_zip_file_path]
+    Default: "[deployment_s3_zip_file_path]"
 
   VPCId:
     Description: "VPC ID"
     Type: AWS::EC2::VPC::Id
-    Default: [vpc_id]
+    Default: "[vpc_id]"
 
   EC2SubnetId:
     Description: "Subnet ID for EC2, e.g., subnet-abc123"
     Type: AWS::EC2::Subnet::Id
-    Default: [ec2_subnet_id]
-
-  ALBSubnetIds:
-    Description: "List of subnet IDs for ALB, e.g., subnet-abc123,subnet-def456,subnet-ghi789"
-    Type: List<AWS::EC2::Subnet::Id>
-    Default: [subnet_id_list]
-
-  EC2OpenAccess:
-    Description: "Whether to enable open access to the EC2 instance for testing"
-    Type: String
-    AllowedValues: ["true", "false"]
-    Default: "false"
-    # Must set to "false" in production
+    Default: "[ec2_subnet_id]"
 
   AppPort:
     Description: "Port number for the application, e.g., 8501"
@@ -63,7 +51,7 @@ Parameters:
   TimeZone:
     Description: "Time zone for the EC2 instance"
     Type: String
-    Default: [your_time_zone]
+    Default: "[your_time_zone]"
 
   # Optional - If you are not using a key pair, leave this value empty.
   # You can always connect to the EC2 instance via the AWS Console.
@@ -94,6 +82,25 @@ Parameters:
     Type: String
     Default: ""
     # The ACM Certificate needs to be created in the same region where the stack runs
+#
+########################################################
+
+
+########################################################
+#
+# Application Load Balancer (ALB)
+#
+  ALBSubnetIds:
+    Description: "List of subnet IDs for ALB, e.g., subnet-abc123,subnet-def456,subnet-ghi789"
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: "[subnet_id_list_comma_delimited]"
+
+  EC2OpenAccess:
+    Description: "Whether to enable open access to the EC2 instance for testing"
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "false"
+    # Must set to "false" in production
 #
 ########################################################
 
@@ -223,46 +230,47 @@ Resources:
             timedatectl set-timezone ${TimeZone}
 
             # Prepare the running environment
+            app_name=streamlit-app
             app_user=ec2-user
             homedir=/home/$app_user
-            mkdir -p $homedir/streamlit-app
-            echo S3BucketName=${S3BucketName} > $homedir/streamlit-app/app.conf
-            echo S3Key=${S3Key} >> $homedir/streamlit-app/app.conf
-            echo AppPort=${AppPort} >> $homedir/streamlit-app/app.conf
-            chown -R $app_user:$app_user $homedir/streamlit-app
+            mkdir -p $homedir/$app_name
+            echo S3BucketName=${S3BucketName} > $homedir/$app_name/app.conf
+            echo S3Key=${S3Key} >> $homedir/$app_name/app.conf
+            echo AppPort=${AppPort} >> $homedir/$app_name/app.conf
+            chown -R $app_user:$app_user $homedir/$app_name
 
             # Download and unpack the application ZIP file
-            aws s3 cp s3://${S3BucketName}/${S3Key} $homedir/streamlit-app/app.zip
-            test -d /opt/streamlit-app && rm -fr /opt/streamlit-app
-            mkdir -p /opt/streamlit-app
-            unzip $homedir/streamlit-app/app.zip -d /opt/streamlit-app
-            chmod +x /opt/streamlit-app/streamlit_app.sh
-            chown -R $app_user:$app_user /opt/streamlit-app
+            aws s3 cp s3://${S3BucketName}/${S3Key} $homedir/$app_name/app.zip
+            test -d /opt/$app_name && rm -fr /opt/$app_name
+            mkdir -p /opt/$app_name
+            unzip $homedir/$app_name/app.zip -d /opt/$app_name
+            chmod +x /opt/$app_name/streamlit_app.sh
+            chown -R $app_user:$app_user /opt/$app_name
 
             # Create the log file
-            touch /var/log/streamlit-app.log
-            chown ec2-user:ec2-user /var/log/streamlit-app.log
+            touch /var/log/$app_name.log
+            chown ec2-user:ec2-user /var/log/$app_name.log
 
             # Create a systemd service to run the application
-            cat << EOF > /etc/systemd/system/streamlit-app.service
+            cat << EOF > /etc/systemd/system/$app_name.service
           [Unit]
           Description=Run the application continuously
           After=network.target
 
           [Service]
-          ExecStart=/opt/streamlit-app/streamlit_app.sh
+          ExecStart=/opt/$app_name/streamlit_app.sh
           Type=simple
           Restart=always
           RestartSec=5
           User=$app_user
-          WorkingDirectory=/opt/streamlit-app
+          WorkingDirectory=/opt/$app_name
 
           [Install]
           WantedBy=multi-user.target
           EOF
             systemctl daemon-reload
-            systemctl enable streamlit-app
-            systemctl start streamlit-app
+            systemctl enable $app_name
+            systemctl start $app_name
 
             echo "EC2 instance is ready"
           ) >> /var/log/ec2-userdata.log 2>&1
@@ -333,10 +341,6 @@ Resources:
             TargetGroupStickinessConfig:
                 DurationSeconds: 300 # 5 minutes, adjust as required
                 Enabled: true
-            # ModifyRequestHeaders:
-            #   - Header: !Ref SecretHeader
-            #     Value: !Ref SecretValue
-            #     Action: "ADD"
   #
   ##############################
 
@@ -358,10 +362,6 @@ Resources:
             TargetGroupStickinessConfig:
                 DurationSeconds: 300 # 5 minutes, adjust as required
                 Enabled: true
-            # ModifyRequestHeaders:
-            #   - Header: !Ref SecretHeader
-            #     Value: !Ref SecretValue
-            #     Action: "ADD"
       Certificates:
         - CertificateArn: !Ref ACMCertificateArn
 
